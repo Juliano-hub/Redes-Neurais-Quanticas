@@ -1,0 +1,134 @@
+import time
+from qiskit_machine_learning.algorithms import VQC
+from qiskit.circuit.library import PauliFeatureMap, EfficientSU2
+from qiskit_algorithms.optimizers import SPSA
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import accuracy_score
+
+from imblearn.over_sampling import SMOTE
+from collections import Counter
+import pandas as pd
+
+import numpy as np
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from DatasetCases import getExecutionCase
+import membership.membershipfunction
+
+def SMOTESampling(X, Y, randomState, input, lastLabel):
+    count = Counter(Y)
+    print(f'Distribution before SMOTE: {count}')
+    minorityClassCountEntry = min(count.values())
+    smote = SMOTE(
+        sampling_strategy='auto', # Define como o balanceamento será feito, auto ajusta a classe minoritária para ter o mesmo número de amostras da majoritária
+        random_state=randomState, # Define a semente para reprodutibilidade
+        k_neighbors= max(1, minorityClassCountEntry - 1)) # Número de vizinhos considerados para gerar os exemplos sintéticos                          
+
+    X_resampled, y_resampled = smote.fit_resample(X, Y)
+
+    print(f'Distribution after SMOTE: {Counter(y_resampled)}')
+
+    #saveToCSV(X_resampled, y_resampled, input, lastLabel, 'datasetSMOTE')
+
+    return X_resampled, y_resampled
+
+def LoadCSV(csvPath, ColumnsX, ColumnsY):
+    header = []
+
+    CSV = pd.read_csv(csvPath, header=None) 
+
+    # Recupera os nomes dos atributos
+    header =  CSV.iloc[0, :-1].tolist()
+    # Recupera a string de último label, a que classifica os dados
+    lastLabel = CSV.iloc[0, -1]
+
+    # Remove a primeira linha do dataframe, o cabeçalho
+    CSV = CSV.iloc[1:]
+
+    #print(CSV)
+
+    # Y recebe as labels de cada linha
+    Y = CSV.iloc[:, ColumnsY].squeeze()
+    Y = Y.astype('float64')
+
+    # Para X receber somente os valores das variáveis 
+    X = CSV.iloc[:, ColumnsX]
+
+    return X, Y, lastLabel, header
+
+
+# CONFIGURAÇÕES
+max_iter = 2
+show_loss = True
+reps = 3
+seed = 42
+testSize = 0.2
+ExecutionCase = 0
+
+# DADOS
+FileName, CSVFile, ColumnsX, ColumnsY, mf, conj = getExecutionCase(int(ExecutionCase))
+X, Y, lastLabel, header = LoadCSV(CSVFile, ColumnsX, ColumnsY)
+X_train, X_test, y_train, y_test = train_test_split(X, Y, random_state=seed, test_size=testSize)
+
+sc_X = MinMaxScaler() # método de normalização
+X_trainscaled=sc_X.fit_transform(X_train)
+X_test = X_test.astype(float).to_numpy()
+X_test_scaled = sc_X.transform(X_test)
+
+XSMOTE, YSMOTE = SMOTESampling(X_trainscaled, y_train, seed, header.copy(), lastLabel)
+
+mfc = membership.membershipfunction.MemFuncs(mf)
+
+# Fuzzificação do conjunto de treino (XSMOTE)
+X_train_fuzzified = [mfc.evaluateMF(row) for row in XSMOTE]
+
+# Fuzzificação do conjunto de teste (X_test_scaled)
+X_test_fuzzified = [mfc.evaluateMF(row) for row in X_test_scaled]
+
+# CIRCUITOS
+print("Running...")
+YSMOTE = YSMOTE.to_numpy()
+y_test = y_test.to_numpy()
+X_train_fuz_array = np.array(X_train_fuzzified)
+
+# 2. Achata para 2D (Amostras x Graus de Pertinência)
+# 3 atributos e 3 FPs cada, X_test_vqc terá shape (N, 9)
+X_train_vqc = X_train_fuz_array.reshape(len(X_train_fuz_array), -1)
+
+feature_map = PauliFeatureMap(feature_dimension=X_train_vqc.shape[1], reps=reps, paulis=['X', 'Y', 'Z'])
+ansatz = EfficientSU2(num_qubits=X_train_vqc.shape[1], reps=reps)
+
+# CALLBACK
+def callback(eval_count, parameters, loss, stepsize, accepted):
+    if show_loss and eval_count % 3 == 0:
+        print(f"Iteração {eval_count} - Loss: {loss:.4f}")
+
+# OTIMIZADOR
+optimizer = SPSA(maxiter=max_iter, callback=callback)
+
+# CRONÔMETRO
+inicio = time.time()
+
+# VQC
+vqc = VQC(feature_map=feature_map, ansatz=ansatz, optimizer=optimizer)
+
+print(X_train_vqc)
+print(YSMOTE)
+vqc.fit(X_train_vqc, YSMOTE)
+
+# AVALIAÇÃO
+
+X_test_fuz_array = np.array(X_test_fuzzified)
+X_test_vqc = X_test_fuz_array.reshape(len(X_test_fuz_array), -1)
+
+y_pred = vqc.predict(X_test_vqc)
+acc = accuracy_score(y_test, y_pred)
+fim = time.time()
+tempo_total = fim - inicio
+
+# RESULTADO
+print(f"\n✅ Acurácia final do VQC (EfficientSU2 + PauliFeatureMap): {acc:.2f}")
+print(f"⏱️ Tempo total de execução: {tempo_total:.2f} segundos")
