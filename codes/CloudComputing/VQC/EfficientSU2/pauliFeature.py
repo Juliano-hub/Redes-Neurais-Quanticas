@@ -7,57 +7,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score
 
-from imblearn.over_sampling import SMOTE
-from collections import Counter
 import pandas as pd
-
 import numpy as np
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from DatasetCases import getExecutionCase
+from DatasetCases import getExecutionCase, LoadCSV, SMOTESampling
 import membership.membershipfunction
-
-def SMOTESampling(X, Y, randomState, input, lastLabel):
-    count = Counter(Y)
-    print(f'Distribution before SMOTE: {count}')
-    minorityClassCountEntry = min(count.values())
-    smote = SMOTE(
-        sampling_strategy='auto', # Define como o balanceamento será feito, auto ajusta a classe minoritária para ter o mesmo número de amostras da majoritária
-        random_state=randomState, # Define a semente para reprodutibilidade
-        k_neighbors= max(1, minorityClassCountEntry - 1)) # Número de vizinhos considerados para gerar os exemplos sintéticos                          
-
-    X_resampled, y_resampled = smote.fit_resample(X, Y)
-
-    print(f'Distribution after SMOTE: {Counter(y_resampled)}')
-
-    #saveToCSV(X_resampled, y_resampled, input, lastLabel, 'datasetSMOTE')
-
-    return X_resampled, y_resampled
-
-def LoadCSV(csvPath, ColumnsX, ColumnsY):
-    header = []
-
-    CSV = pd.read_csv(csvPath, header=None) 
-
-    # Recupera os nomes dos atributos
-    header =  CSV.iloc[0, :-1].tolist()
-    # Recupera a string de último label, a que classifica os dados
-    lastLabel = CSV.iloc[0, -1]
-
-    # Remove a primeira linha do dataframe, o cabeçalho
-    CSV = CSV.iloc[1:]
-
-    #print(CSV)
-
-    # Y recebe as labels de cada linha
-    Y = CSV.iloc[:, ColumnsY].squeeze()
-    Y = Y.astype('float64')
-
-    # Para X receber somente os valores das variáveis 
-    X = CSV.iloc[:, ColumnsX]
-
-    return X, Y, lastLabel, header
 
 
 # CONFIGURAÇÕES

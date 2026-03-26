@@ -37,13 +37,10 @@ inicio = time.time()
 
 # VQC
 vqc = VQC(feature_map=feature_map, ansatz=ansatz, optimizer=optimizer)
-print(X_train)
-print(y_train)
 vqc.fit(X_train, y_train)
 
 # AVALIAÇÃO
 y_pred = vqc.predict(X_test)
-print(y_pred)
 acc = accuracy_score(y_test, y_pred)
 fim = time.time()
 tempo_total = fim - inicio

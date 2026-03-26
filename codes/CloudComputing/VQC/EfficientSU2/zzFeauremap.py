@@ -8,22 +8,55 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score
 
+import pandas as pd
+import numpy as np
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from DatasetCases import getExecutionCase, LoadCSV, SMOTESampling
+import membership.membershipfunction
+
+
 # CONFIGURAÇÕES
-max_iter = 500
+max_iter = 2
 show_loss = True
 reps = 3
 seed = 42
+testSize = 0.2
+ExecutionCase = 0
 
-# DADOS (Iris binário)
-iris = load_iris()
-X = iris.data[iris.target != 2][:, :4] # usa 4 qubits/features
-y = iris.target[iris.target != 2]
-X = MinMaxScaler().fit_transform(X)
-X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=seed)
+# DADOS
+FileName, CSVFile, ColumnsX, ColumnsY, mf, conj = getExecutionCase(int(ExecutionCase))
+X, Y, lastLabel, header = LoadCSV(CSVFile, ColumnsX, ColumnsY)
+X_train, X_test, y_train, y_test = train_test_split(X, Y, random_state=seed, test_size=testSize)
+
+sc_X = MinMaxScaler() # método de normalização
+X_trainscaled=sc_X.fit_transform(X_train)
+X_test = X_test.astype(float).to_numpy()
+X_test_scaled = sc_X.transform(X_test)
+
+XSMOTE, YSMOTE = SMOTESampling(X_trainscaled, y_train, seed, header.copy(), lastLabel)
+
+mfc = membership.membershipfunction.MemFuncs(mf)
+
+# Fuzzificação do conjunto de treino (XSMOTE)
+X_train_fuzzified = [mfc.evaluateMF(row) for row in XSMOTE]
+
+# Fuzzificação do conjunto de teste (X_test_scaled)
+X_test_fuzzified = [mfc.evaluateMF(row) for row in X_test_scaled]
 
 # CIRCUITOS
-feature_map = ZZFeatureMap(feature_dimension=X.shape[1], reps=reps)
-ansatz = EfficientSU2(num_qubits=X.shape[1], reps=reps)
+print("Running...")
+YSMOTE = YSMOTE.to_numpy()
+y_test = y_test.to_numpy()
+X_train_fuz_array = np.array(X_train_fuzzified)
+
+# 2. Achata para 2D (Amostras x Graus de Pertinência)
+# 3 atributos e 3 FPs cada, X_test_vqc terá shape (N, 9)
+X_train_vqc = X_train_fuz_array.reshape(len(X_train_fuz_array), -1)
+
+feature_map = ZZFeatureMap(feature_dimension=X_train_vqc.shape[1], reps=reps)
+ansatz = EfficientSU2(num_qubits=X_train_vqc.shape[1], reps=reps)
 
 # CALLBACK
 def callback(eval_count, parameters, loss, stepsize, accepted):
@@ -44,10 +77,14 @@ vqc = VQC(
 )
 
 # TREINAMENTO
-vqc.fit(X_train, y_train)
+vqc.fit(X_train_vqc, YSMOTE)
 
 # AVALIAÇÃO
-y_pred = vqc.predict(X_test)
+
+X_test_fuz_array = np.array(X_test_fuzzified)
+X_test_vqc = X_test_fuz_array.reshape(len(X_test_fuz_array), -1)
+
+y_pred = vqc.predict(X_test_vqc)
 acc = accuracy_score(y_test, y_pred)
 fim = time.time()
 tempo_total = fim - inicio
