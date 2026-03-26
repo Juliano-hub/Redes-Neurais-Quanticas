@@ -16,7 +16,7 @@ from DatasetCases import getExecutionCase, LoadCSV, SMOTESampling
 import membership.membershipfunction
 
 # CONFIGURAÇÕES
-max_iter = 500
+max_iter = 2
 show_loss = True
 reps = 3
 seed = 42
@@ -49,8 +49,7 @@ YSMOTE = YSMOTE.to_numpy()
 y_test = y_test.to_numpy()
 X_train_fuz_array = np.array(X_train_fuzzified)
 
-# 2. Achata para 2D (Amostras x Graus de Pertinência)
-# 3 atributos e 3 FPs cada, X_test_vqc terá shape (N, 9)
+# Achata para 2D (Amostras x Graus de Pertinência)
 X_train_vqc = X_train_fuz_array.reshape(len(X_train_fuz_array), -1)
 
 feature_map = ZZFeatureMap(feature_dimension=X_train_vqc.shape[1], reps=reps)
